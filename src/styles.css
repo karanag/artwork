@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0: #060b11;
+  --bg-1: #0d1522;
+  --bg-2: #132033;
+  --card-bg: rgba(9, 15, 26, 0.72);
+  --card-border: rgba(123, 145, 177, 0.24);
+  --text-main: #e2ebf3;
+  --text-muted: #94a7c1;
+  --teal: #2dd4bf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at 15% 20%, rgba(45, 212, 191, 0.15), transparent 40%),
+    radial-gradient(circle at 88% 12%, rgba(14, 116, 144, 0.26), transparent 43%),
+    linear-gradient(140deg, var(--bg-0) 0%, var(--bg-1) 55%, var(--bg-2) 100%);
+  background-attachment: fixed;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+::selection {
+  background: rgba(45, 212, 191, 0.25);
+  color: #f8fbff;
+}
