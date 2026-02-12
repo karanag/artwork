@@ -455,6 +455,7 @@ export async function mapArtworkToPdf({
 
   return {
     artworkReference,
+    referenceMode,
     generatedDate: formatDateLabel(new Date()),
     meta,
     cadImage: imageMap.get(cadUrl) || '',

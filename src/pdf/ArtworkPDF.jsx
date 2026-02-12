@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
 
   heroWrap: {
     width: '55%',
-    height: 95,
+    height: 125,
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
   },
