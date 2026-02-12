@@ -1,22 +1,14 @@
-const imageCache = new Map()
+import { toStorageProxyUrl } from '../utils/storageProxyUrl'
 
+const imageCache = new Map()
 
 function isSupportedDataUrl(value) {
   return /^data:image\/(png|jpe?g);base64,/i.test(value || '')
 }
 
-function isHttpUrl(value) {
-  return /^https?:\/\//i.test(value || '')
-}
-
-
-
 function toProxyUrl(url) {
-  
-    return url
-  }
-
- 
+  return toStorageProxyUrl(url)
+}
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {

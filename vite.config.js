@@ -3,12 +3,13 @@ import react from '@vitejs/plugin-react'
 
 function createImageProxyMiddleware() {
   const allowedHosts = new Set(['firebasestorage.googleapis.com', 'storage.googleapis.com'])
+  const proxyPaths = new Set(['/api/image-proxy', '/__img_proxy'])
 
   return async function imageProxyMiddleware(req, res, next) {
     try {
       const requestUrl = new URL(req.url || '/', 'http://localhost')
 
-      if (requestUrl.pathname !== '/__img_proxy') {
+      if (!proxyPaths.has(requestUrl.pathname)) {
         next()
         return
       }

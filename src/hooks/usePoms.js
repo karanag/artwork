@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef } from 'firebase/storage'
 import { db, firebaseError, storage } from '../firebase/client'
+import { toStorageProxyUrl } from '../utils/storageProxyUrl'
 
 const STORAGE_BUCKET = import.meta.env.VITE_FB_STORAGE_BUCKET || ''
 const PROJECT_ID = import.meta.env.VITE_FB_PROJECT_ID || ''
@@ -141,13 +142,18 @@ async function testPomImageFetch(url, pomId, label) {
   }
 
   try {
-    const response = await fetch(url)
+    const fetchUrl = toStorageProxyUrl(url)
+    const response = await fetch(fetchUrl, {
+      credentials: 'omit',
+      mode: 'cors',
+    })
     console.log('[POMS DEBUG] Pom fetch status:', {
       pomId,
       label,
       status: response.status,
       ok: response.ok,
       url,
+      fetchUrl,
     })
 
     if (!response.ok) {
@@ -156,13 +162,16 @@ async function testPomImageFetch(url, pomId, label) {
         label,
         status: response.status,
         url,
+        fetchUrl,
       })
     }
   } catch (error) {
+    const fetchUrl = toStorageProxyUrl(url)
     console.error('[POMS DEBUG] Fetch error:', {
       pomId,
       label,
       url,
+      fetchUrl,
       message: error?.message || 'Unknown error',
     })
   }
