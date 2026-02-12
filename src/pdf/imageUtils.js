@@ -1,5 +1,5 @@
 const imageCache = new Map()
-const STORAGE_HOSTS = new Set(['firebasestorage.googleapis.com', 'storage.googleapis.com'])
+
 
 function isSupportedDataUrl(value) {
   return /^data:image\/(png|jpe?g);base64,/i.test(value || '')
@@ -9,32 +9,14 @@ function isHttpUrl(value) {
   return /^https?:\/\//i.test(value || '')
 }
 
-function shouldProxyUrl(value) {
-  if (!isHttpUrl(value)) {
-    return false
-  }
 
-  try {
-    const parsed = new URL(value)
-    return STORAGE_HOSTS.has(parsed.hostname)
-  } catch {
-    return false
-  }
-}
 
 function toProxyUrl(url) {
-  if (!shouldProxyUrl(url)) {
+  
     return url
   }
 
-  try {
-    const proxyUrl = new URL('/__img_proxy', window.location.origin)
-    proxyUrl.searchParams.set('src', url)
-    return proxyUrl.toString()
-  } catch {
-    return url
-  }
-}
+ 
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
