@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:backup": "node ./scripts/firebase-backup.mjs",
+    "firebase:migrate-poms": "node ./scripts/migrate-pom-media.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",

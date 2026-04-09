@@ -2,23 +2,24 @@ import { useEffect, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef } from 'firebase/storage'
 import { db, firebaseError, storage } from '../firebase/client'
-import { toStorageProxyUrl } from '../utils/storageProxyUrl'
+import {
+  getPomFrontImage,
+  getPomSearchText,
+  getPomSideImage,
+  getPomSortLabel,
+} from '../poms/media'
 
 const STORAGE_BUCKET = import.meta.env.VITE_FB_STORAGE_BUCKET || ''
 const PROJECT_ID = import.meta.env.VITE_FB_PROJECT_ID || ''
+const POMS_CACHE_KEY = 'rug-artwork-web:poms-cache:v2'
+const POMS_CACHE_SCHEMA = 2
 
-function pomSortLabel(pom) {
-  const code = pom.number || pom.name || pom.code || pom.pomCode || pom.pomNumber || pom.id || ''
-  const material = pom.material || pom.fiber || pom.yarn || ''
-  return `${code} ${material}`.trim().toLowerCase()
-}
+let inMemoryPomsCache = []
+let hasInMemoryPomsCache = false
+let inFlightPomsFetch = null
 
 function hasText(value) {
   return typeof value === 'string' && value.trim().length > 0
-}
-
-function isHttpsUrl(value) {
-  return hasText(value) && value.startsWith('https://')
 }
 
 function parseGsUrl(url) {
@@ -34,14 +35,67 @@ function parseGsUrl(url) {
   }
 }
 
-function firstNonEmpty(values) {
-  for (const value of values) {
-    if (hasText(value)) {
-      return value.trim()
-    }
+function readCachedPomsFromStorage() {
+  if (typeof window === 'undefined') {
+    return null
   }
 
-  return ''
+  try {
+    const raw = window.localStorage.getItem(POMS_CACHE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw)
+    if (parsed?.schema !== POMS_CACHE_SCHEMA || !Array.isArray(parsed?.items)) {
+      return null
+    }
+
+    return parsed.items
+  } catch {
+    return null
+  }
+}
+
+function writeCachedPomsToStorage(items) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      POMS_CACHE_KEY,
+      JSON.stringify({
+        schema: POMS_CACHE_SCHEMA,
+        cachedAt: Date.now(),
+        items,
+      })
+    )
+  } catch {
+    // Ignore storage write failures (quota/privacy mode).
+  }
+}
+
+function savePomsToCache(items) {
+  const next = Array.isArray(items) ? items : []
+  inMemoryPomsCache = next
+  hasInMemoryPomsCache = true
+  writeCachedPomsToStorage(next)
+}
+
+function readPomsFromCache() {
+  if (hasInMemoryPomsCache) {
+    return inMemoryPomsCache
+  }
+
+  const fromStorage = readCachedPomsFromStorage()
+  if (Array.isArray(fromStorage)) {
+    inMemoryPomsCache = fromStorage
+    hasInMemoryPomsCache = true
+    return fromStorage
+  }
+
+  return null
 }
 
 async function resolvePomUrl(url, pomId, fieldName) {
@@ -136,44 +190,48 @@ async function resolvePomUrl(url, pomId, fieldName) {
   }
 }
 
-async function testPomImageFetch(url, pomId, label) {
-  if (!hasText(url) || !url.startsWith('http')) {
-    return
+async function fetchAndResolvePomsFromFirestore() {
+  const snap = await getDocs(collection(db, 'poms'))
+  const rawDocs = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+
+  const resolvedDocs = await Promise.all(
+    rawDocs.map(async (pom) => {
+      const rawFrontUrl = getPomFrontImage(pom)
+      const rawSideUrl = getPomSideImage(pom)
+
+      const frontUrl = await resolvePomUrl(rawFrontUrl, pom.id, 'frontUrl')
+      const sideUrl = await resolvePomUrl(rawSideUrl, pom.id, 'sideUrl')
+
+      const resolvedPom = {
+        ...pom,
+        frontUrl: frontUrl || pom.frontUrl || '',
+        sideUrl: sideUrl || pom.sideUrl || '',
+        thumbFrontUrl: frontUrl || pom.thumbFrontUrl || pom.frontThumbnailUrl || '',
+        thumbSideUrl: sideUrl || pom.thumbSideUrl || pom.sideThumbnailUrl || '',
+        displayFrontUrl: frontUrl || '',
+        displaySideUrl: sideUrl || '',
+        searchText: getPomSearchText(pom),
+      }
+
+      return resolvedPom
+    })
+  )
+
+  const next = resolvedDocs.sort((a, b) => getPomSortLabel(a).localeCompare(getPomSortLabel(b)))
+  savePomsToCache(next)
+  return next
+}
+
+async function loadPomsWithSharedRequest() {
+  if (inFlightPomsFetch) {
+    return inFlightPomsFetch
   }
 
+  inFlightPomsFetch = fetchAndResolvePomsFromFirestore()
   try {
-    const fetchUrl = toStorageProxyUrl(url)
-    const response = await fetch(fetchUrl, {
-      credentials: 'omit',
-      mode: 'cors',
-    })
-    console.log('[POMS DEBUG] Pom fetch status:', {
-      pomId,
-      label,
-      status: response.status,
-      ok: response.ok,
-      url,
-      fetchUrl,
-    })
-
-    if (!response.ok) {
-      console.error('[POMS DEBUG] Pom fetch non-ok response', {
-        pomId,
-        label,
-        status: response.status,
-        url,
-        fetchUrl,
-      })
-    }
-  } catch (error) {
-    const fetchUrl = toStorageProxyUrl(url)
-    console.error('[POMS DEBUG] Fetch error:', {
-      pomId,
-      label,
-      url,
-      fetchUrl,
-      message: error?.message || 'Unknown error',
-    })
+    return await inFlightPomsFetch
+  } finally {
+    inFlightPomsFetch = null
   }
 }
 
@@ -186,6 +244,16 @@ export default function usePoms() {
     let cancelled = false
 
     const run = async () => {
+      const cachedPoms = readPomsFromCache()
+      if (cachedPoms) {
+        if (!cancelled) {
+          setPoms(cachedPoms)
+          setError('')
+          setLoading(false)
+        }
+        return
+      }
+
       if (!db) {
         if (!cancelled) {
           setLoading(false)
@@ -194,104 +262,15 @@ export default function usePoms() {
         return
       }
 
-      console.log('[POMS DEBUG] Firebase env check', {
-        projectId: PROJECT_ID,
-        storageBucket: STORAGE_BUCKET,
-      })
-
       if (PROJECT_ID && STORAGE_BUCKET && !STORAGE_BUCKET.includes(PROJECT_ID)) {
-        console.warn('[POMS DEBUG] storageBucket may not match projectId', {
+        console.warn('POM storageBucket may not match projectId', {
           projectId: PROJECT_ID,
           storageBucket: STORAGE_BUCKET,
         })
       }
 
       try {
-        const snap = await getDocs(collection(db, 'poms'))
-        const rawDocs = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
-
-        const resolvedDocs = await Promise.all(
-          rawDocs.map(async (pom) => {
-            console.log('[POMS DEBUG] Full pom document', pom)
-            console.log('[POMS DEBUG] Raw pom URL fields', {
-              pomId: pom.id,
-              frontImageUrl: pom.frontImageUrl || '',
-              sideImageUrl: pom.sideImageUrl || '',
-              frontThumbnailUrl: pom.frontThumbnailUrl || '',
-              sideThumbnailUrl: pom.sideThumbnailUrl || '',
-              frontUrl: pom.frontUrl || '',
-              sideUrl: pom.sideUrl || '',
-              thumbFrontUrl: pom.thumbFrontUrl || '',
-              thumbSideUrl: pom.thumbSideUrl || '',
-              frontImagePath: pom.frontImagePath || '',
-              sideImagePath: pom.sideImagePath || '',
-              frontThumbnailPath: pom.frontThumbnailPath || '',
-              sideThumbnailPath: pom.sideThumbnailPath || '',
-            })
-
-            const rawFrontUrl = firstNonEmpty([
-              pom.frontUrl,
-              pom.frontImageUrl,
-              pom.imageFrontUrl,
-              pom.front,
-              pom.imageUrl,
-              pom.frontImagePath,
-            ])
-            const rawSideUrl = firstNonEmpty([
-              pom.sideUrl,
-              pom.sideImageUrl,
-              pom.imageSideUrl,
-              pom.side,
-              pom.sideImagePath,
-            ])
-            const rawThumbFrontUrl = firstNonEmpty([
-              pom.thumbFrontUrl,
-              pom.frontThumbnailUrl,
-              pom.frontThumbUrl,
-              pom.frontThumbnailPath,
-            ])
-            const rawThumbSideUrl = firstNonEmpty([
-              pom.thumbSideUrl,
-              pom.sideThumbnailUrl,
-              pom.sideThumbUrl,
-              pom.sideThumbnailPath,
-            ])
-
-            const frontUrl = await resolvePomUrl(rawFrontUrl, pom.id, 'frontUrl')
-            const sideUrl = await resolvePomUrl(rawSideUrl, pom.id, 'sideUrl')
-            const thumbFrontUrl = await resolvePomUrl(rawThumbFrontUrl, pom.id, 'thumbFrontUrl')
-            const thumbSideUrl = await resolvePomUrl(rawThumbSideUrl, pom.id, 'thumbSideUrl')
-
-            const resolvedPom = {
-              ...pom,
-              frontUrl: frontUrl || pom.frontUrl || '',
-              sideUrl: sideUrl || pom.sideUrl || '',
-              thumbFrontUrl: thumbFrontUrl || pom.thumbFrontUrl || '',
-              thumbSideUrl: thumbSideUrl || pom.thumbSideUrl || '',
-            }
-
-            console.log('[POMS DEBUG] Resolved pom URLs', {
-              pomId: pom.id,
-              rawFrontUrl,
-              rawSideUrl,
-              rawThumbFrontUrl,
-              rawThumbSideUrl,
-              frontUrl: resolvedPom.frontUrl,
-              sideUrl: resolvedPom.sideUrl,
-              thumbFrontUrl: resolvedPom.thumbFrontUrl,
-              thumbSideUrl: resolvedPom.thumbSideUrl,
-              frontIsHttps: isHttpsUrl(resolvedPom.frontUrl),
-              sideIsHttps: isHttpsUrl(resolvedPom.sideUrl),
-            })
-
-            await testPomImageFetch(resolvedPom.frontUrl || resolvedPom.thumbFrontUrl, pom.id, 'front')
-            await testPomImageFetch(resolvedPom.sideUrl || resolvedPom.thumbSideUrl, pom.id, 'side')
-
-            return resolvedPom
-          })
-        )
-
-        const next = resolvedDocs.sort((a, b) => pomSortLabel(a).localeCompare(pomSortLabel(b)))
+        const next = await loadPomsWithSharedRequest()
 
         if (!cancelled) {
           setPoms(next)

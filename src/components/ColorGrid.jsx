@@ -1,59 +1,8 @@
 import { useMemo, useState } from 'react'
 import Button from './Button'
 import Card from './Card'
-
-function getPomSeries(pom) {
-  return pom?.series || pom?.pomSeries || pom?.collection || ''
-}
-
-function getPomCode(pom) {
-  return pom?.number || pom?.code || pom?.pomCode || pom?.pomNumber || pom?.name || pom?.id || 'Pom'
-}
-
-function getPomMaterial(pom) {
-  return pom?.material || pom?.fiber || pom?.yarn || ''
-}
-
-function getPomLabel(pom) {
-  const series = getPomSeries(pom)
-  const code = getPomCode(pom)
-  return series ? `${series}-${code}` : code
-}
-
-function pickPomFrontImage(pom) {
-  return (
-    pom?.thumbFrontUrl ||
-    pom?.frontThumbnailUrl ||
-    pom?.frontUrl ||
-    pom?.frontImageUrl ||
-    pom?.imageUrl ||
-    pom?.thumbSideUrl ||
-    pom?.sideThumbnailUrl ||
-    pom?.sideUrl ||
-    pom?.sideImageUrl ||
-    ''
-  )
-}
-
-function getSearchText(pom) {
-  return [
-    pom.id,
-    pom.series,
-    pom.pomSeries,
-    pom.collection,
-    pom.number,
-    pom.code,
-    pom.pomCode,
-    pom.pomNumber,
-    pom.name,
-    pom.material,
-    pom.fiber,
-    pom.yarn,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
-}
+import { getPomFrontImage, getPomLabel, getPomMaterial } from '../poms/media'
+import { buildPomSearchIndex, searchPomIndex } from '../poms/search'
 
 function ImageFailBox({ className }) {
   return (
@@ -79,14 +28,8 @@ export default function ColorGrid({
     return new Map(poms.map((pom) => [pom.id, pom]))
   }, [poms])
 
-  const searchablePoms = useMemo(() => {
-    return poms.map((pom) => ({
-      pom,
-      label: getPomLabel(pom),
-      material: getPomMaterial(pom),
-      thumb: pickPomFrontImage(pom),
-      searchText: getSearchText(pom),
-    }))
+  const searchIndex = useMemo(() => {
+    return buildPomSearchIndex(poms)
   }, [poms])
 
   const markImageFailed = (src) => {
@@ -123,11 +66,8 @@ export default function ColorGrid({
         const selectedPom = pomsById.get(color.pomId)
         const selectedPomLabel = selectedPom ? getPomLabel(selectedPom) : color.pomLabel || ''
         const selectedPomMaterial = color.pomMaterial || (selectedPom ? getPomMaterial(selectedPom) : '')
-        const frontThumb = selectedPom ? pickPomFrontImage(selectedPom) : ''
-
-        const matches = query
-          ? searchablePoms.filter((entry) => entry.searchText.includes(query)).slice(0, 18)
-          : searchablePoms.slice(0, 10)
+        const frontThumb = selectedPom ? getPomFrontImage(selectedPom) : ''
+        const matches = query ? searchPomIndex(searchIndex, query, 18) : []
 
         return (
           <Card key={`${color.hex}-${index}`} className="space-y-3 p-4">
@@ -165,16 +105,15 @@ export default function ColorGrid({
             </label>
 
             <div className="max-h-44 space-y-1 overflow-auto rounded-xl border border-white/10 bg-slate-900/55 p-1.5">
+              {!query ? (
+                <p className="px-2 py-3 text-xs text-slate-400">
+                  Type to search the indexed POM library. Results appear instantly without loading long lists.
+                </p>
+              ) : null}
               {matches.map((entry) => {
                 const isSelected = color.pomId === entry.pom.id
-                const listThumbOk = Boolean(entry.thumb) && !hasImageFailed(entry.thumb)
-
-                if (entry.thumb) {
-                  console.log('[POM IMG DEBUG] Rendering list thumbnail', {
-                    pomId: entry.pom.id,
-                    src: entry.thumb,
-                  })
-                }
+                const thumb = getPomFrontImage(entry.pom)
+                const listThumbOk = Boolean(thumb) && !hasImageFailed(thumb)
 
                 return (
                   <button
@@ -189,16 +128,14 @@ export default function ColorGrid({
                   >
                     {listThumbOk ? (
                       <img
-                        src={entry.thumb}
+                        src={thumb}
                         alt={entry.label}
                         loading="lazy"
+                        decoding="async"
                         className="h-7 w-7 rounded object-cover"
-                        onError={(event) => {
-                          console.error('Pom image failed:', event.currentTarget.src)
-                          markImageFailed(entry.thumb)
-                        }}
+                        onError={() => markImageFailed(thumb)}
                       />
-                    ) : entry.thumb ? (
+                    ) : thumb ? (
                       <ImageFailBox className="h-7 w-16" />
                     ) : (
                       <div className="h-7 w-7 rounded border border-white/10 bg-slate-800" />
@@ -208,7 +145,9 @@ export default function ColorGrid({
                   </button>
                 )
               })}
-              {!matches.length ? <p className="px-2 py-1 text-xs text-slate-400">No matching poms.</p> : null}
+              {query && !matches.length ? (
+                <p className="px-2 py-1 text-xs text-slate-400">No matching poms.</p>
+              ) : null}
             </div>
 
             <label className="block space-y-1">
@@ -225,22 +164,14 @@ export default function ColorGrid({
             {selectedPom ? (
               <div className="space-y-2 rounded-lg border border-teal-300/30 bg-teal-400/10 p-2">
                 <div className="grid grid-cols-1 gap-2">
-                  {frontThumb
-                    ? console.log('[POM IMG DEBUG] Rendering selected front image', {
-                        pomId: selectedPom.id,
-                        src: frontThumb,
-                      })
-                    : null}
                   {frontThumb && !hasImageFailed(frontThumb) ? (
                     <img
                       src={frontThumb}
                       alt={`${selectedPomLabel} front`}
                       loading="lazy"
+                      decoding="async"
                       className="h-20 w-full rounded-md object-cover"
-                      onError={(event) => {
-                        console.error('Pom image failed:', event.currentTarget.src)
-                        markImageFailed(frontThumb)
-                      }}
+                      onError={() => markImageFailed(frontThumb)}
                     />
                   ) : frontThumb ? (
                     <ImageFailBox className="h-20 w-full" />

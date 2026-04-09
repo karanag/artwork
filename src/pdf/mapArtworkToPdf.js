@@ -1,4 +1,5 @@
 import { buildImageSourceMap } from './imageUtils'
+import { getPomCode, getPomFrontImage, getPomLabel, getPomMaterial, getPomSeries, getPomSideImage } from '../poms/media'
 
 function cleanText(value, fallback = '') {
   if (typeof value !== 'string') {
@@ -72,27 +73,6 @@ function normalizeSizeForFile(size, sizeUnit) {
   return withUnit || compactUnit
 }
 
-function getPomSeries(pom) {
-  return pom?.series || pom?.pomSeries || pom?.collection || ''
-}
-
-function getPomCode(pom) {
-  return (
-    pom?.number ||
-    pom?.code ||
-    pom?.pomCode ||
-    pom?.pomNumber ||
-    pom?.count ||
-    pom?.name ||
-    pom?.id ||
-    ''
-  )
-}
-
-function getPomMaterial(pom) {
-  return pom?.material || pom?.fiber || pom?.yarn || pom?.composition || ''
-}
-
 function normalizePomLookup(value) {
   return cleanText(value).replace(/\s+/g, '').toLowerCase()
 }
@@ -106,40 +86,6 @@ function firstNonEmpty(values) {
   }
 
   return ''
-}
-
-function getPomFrontImage(pom) {
-  return firstNonEmpty([
-    pom?.thumbFrontUrl ||
-    pom?.frontThumbnailUrl ||
-    pom?.frontThumbUrl ||
-    pom?.frontUrl ||
-    pom?.frontImageUrl ||
-    pom?.frontImagePath ||
-    pom?.thumbSideUrl ||
-    pom?.sideThumbnailUrl ||
-    pom?.sideThumbUrl ||
-    pom?.sideUrl ||
-    pom?.sideImageUrl ||
-    pom?.sideImagePath,
-  ])
-}
-
-function getPomSideImage(pom) {
-  return firstNonEmpty([
-    pom?.thumbSideUrl ||
-    pom?.sideThumbnailUrl ||
-    pom?.sideThumbUrl ||
-    pom?.sideUrl ||
-    pom?.sideImageUrl ||
-    pom?.sideImagePath ||
-    pom?.thumbFrontUrl ||
-    pom?.frontThumbnailUrl ||
-    pom?.frontThumbUrl ||
-    pom?.frontUrl ||
-    pom?.frontImageUrl ||
-    pom?.frontImagePath,
-  ])
 }
 
 function getTextureImage(texture) {
@@ -203,6 +149,39 @@ function resolveHeroUrl(artwork, referenceMode) {
   return visualisation || inspiration
 }
 
+function resolveMainImageMode(artwork, mainImageMode) {
+  const cad = cleanText(artwork?.cadUrl)
+  const visualisation = cleanText(artwork?.visualisationUrl)
+
+  if (mainImageMode === 'visualisation' && visualisation) {
+    return 'visualisation'
+  }
+
+  if (cad) {
+    return 'cad'
+  }
+
+  if (visualisation) {
+    return 'visualisation'
+  }
+
+  return 'cad'
+}
+
+function resolveMainImageUrl(artwork, resolvedMainImageMode) {
+  if (resolvedMainImageMode === 'visualisation') {
+    return cleanText(artwork?.visualisationUrl)
+  }
+
+  return cleanText(artwork?.cadUrl)
+}
+
+function resolveMainImageLabel(resolvedMainImageMode) {
+  return resolvedMainImageMode === 'visualisation'
+    ? 'Final Artwork / Visualisation'
+    : 'Final Artwork / CAD'
+}
+
 function readImageDimensions(src) {
   if (!src) {
     return Promise.resolve({ width: 0, height: 0 })
@@ -259,7 +238,7 @@ function mapColors(colors, pomsById) {
     const pom = pomFromId || pomFromLookup
     const pomSeries = cleanText(colorSeries || getPomSeries(pom))
     const pomCode = cleanText(colorCode || getPomCode(pom))
-    const fallbackLabel = pomSeries || pomCode ? `${pomSeries ? `${pomSeries}-` : ''}${pomCode}` : 'Unmapped'
+    const fallbackLabel = cleanText(getPomLabel(pom)) || (pomSeries || pomCode ? `${pomSeries ? `${pomSeries}-` : ''}${pomCode}` : 'Unmapped')
     const pomLabel = cleanText(colorLabel, fallbackLabel)
     const pomFrontUrl = firstNonEmpty([getPomFrontImage(pom), color?.pomFrontUrl, color?.pomFrontSrc])
     const pomSideUrl = firstNonEmpty([getPomSideImage(pom), color?.pomSideUrl, color?.pomSideSrc])
@@ -379,6 +358,7 @@ export async function mapArtworkToPdf({
   textures = [],
   poms = [],
   referenceMode = 'auto',
+  mainImageMode = 'cad',
 }) {
   const artworkReference = resolveArtworkReference(artwork || {})
   const pomsById = new Map(
@@ -391,10 +371,12 @@ export async function mapArtworkToPdf({
   const meta = normalizeMeta(artwork?.meta || {}, mappedColors)
 
   const cadUrl = cleanText(artwork?.cadUrl)
+  const visualisationUrl = resolveVisualisationUrl(artwork || {})
   const heroUrl = resolveHeroUrl(artwork || {}, referenceMode)
+  const resolvedMainImageMode = resolveMainImageMode(artwork || {}, mainImageMode)
+  const mainImageUrl = resolveMainImageUrl(artwork || {}, resolvedMainImageMode)
 
-  const visualisationUrl =
-    referenceMode === 'visualisation' ? resolveVisualisationUrl(artwork || {}) : ''
+  const selectedVisualisationUrl = referenceMode === 'visualisation' ? visualisationUrl : ''
 
   const inspirationUrl =
     referenceMode === 'inspiration' ? resolveInspirationUrl(artwork || {}, referenceMode) : ''
@@ -402,6 +384,7 @@ export async function mapArtworkToPdf({
 
   const candidateUrls = [
     cadUrl,
+    mainImageUrl,
     heroUrl,
     ...mappedColors.flatMap((color) => [color.pomFrontUrl, color.pomSideUrl]),
     ...mappedTextures.map((texture) => texture.imageUrl),
@@ -410,13 +393,15 @@ export async function mapArtworkToPdf({
   console.log('[PDF MAP DEBUG] Preparing image sources', {
     artworkReference,
     referenceMode,
+    mainImageMode: resolvedMainImageMode,
     candidateCount: candidateUrls.filter(Boolean).length,
     cadUrl: cadUrl ? cadUrl.slice(0, 120) : '',
+    mainImageUrl: mainImageUrl ? mainImageUrl.slice(0, 120) : '',
     heroUrl: heroUrl ? heroUrl.slice(0, 120) : '',
   })
 
   const imageMap = await buildImageSourceMap(candidateUrls)
-  const visualisationImage = visualisationUrl ? imageMap.get(visualisationUrl) || '' : ''
+  const visualisationImage = selectedVisualisationUrl ? imageMap.get(selectedVisualisationUrl) || '' : ''
   const inspirationImage = inspirationUrl ? imageMap.get(inspirationUrl) || '' : ''
   const heroImage = heroUrl ? imageMap.get(heroUrl) || '' : ''
   const heroDimensions = await readImageDimensions(heroImage)
@@ -456,8 +441,11 @@ export async function mapArtworkToPdf({
   return {
     artworkReference,
     referenceMode,
+    mainImageMode: resolvedMainImageMode,
     generatedDate: formatDateLabel(new Date()),
     meta,
+    mainImage: imageMap.get(mainImageUrl) || '',
+    mainImageLabel: resolveMainImageLabel(resolvedMainImageMode),
     cadImage: imageMap.get(cadUrl) || '',
     visualisationImage,
     inspirationImage,

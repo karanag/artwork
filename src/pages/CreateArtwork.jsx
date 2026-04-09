@@ -25,6 +25,7 @@ import { db, firebaseError } from '../firebase/client'
 import { buildArtworkStoragePath, uploadFileToStorage } from '../firebase/storageUpload'
 import usePoms from '../hooks/usePoms'
 import useTextures from '../hooks/useTextures'
+import { getPomCode, getPomFrontImage, getPomLabel, getPomMaterial, getPomSeries, getPomSideImage } from '../poms/media'
 import extractColors from '../utils/extractColors'
 
 const START_ARTWORK_NO = 3157
@@ -44,53 +45,6 @@ function initialMetaState() {
     notes: '',
     projectRef: '',
   }
-}
-
-function getPomSeries(pom) {
-  return pom?.series || pom?.pomSeries || pom?.collection || ''
-}
-
-function getPomCode(pom) {
-  return pom?.number || pom?.code || pom?.pomCode || pom?.pomNumber || pom?.name || pom?.id || ''
-}
-
-function getPomMaterial(pom) {
-  return pom?.material || pom?.fiber || pom?.yarn || ''
-}
-
-function getPomFrontImage(pom) {
-  return (
-    pom?.thumbFrontUrl ||
-    pom?.frontThumbnailUrl ||
-    pom?.frontUrl ||
-    pom?.frontImageUrl ||
-    pom?.imageUrl ||
-    pom?.thumbSideUrl ||
-    pom?.sideThumbnailUrl ||
-    pom?.sideUrl ||
-    pom?.sideImageUrl ||
-    ''
-  )
-}
-
-function getPomSideImage(pom) {
-  return (
-    pom?.sideUrl ||
-    pom?.sideImageUrl ||
-    pom?.thumbSideUrl ||
-    pom?.sideThumbnailUrl ||
-    pom?.frontUrl ||
-    pom?.frontImageUrl ||
-    pom?.thumbFrontUrl ||
-    pom?.frontThumbnailUrl ||
-    ''
-  )
-}
-
-function getPomLabel(pom) {
-  const series = getPomSeries(pom)
-  const code = getPomCode(pom)
-  return series ? `${series}-${code}` : code
 }
 
 function parseArtworkNoFromLabel(label) {
@@ -182,6 +136,8 @@ function buildSearchableColor(color) {
     pomMaterial: color.pomMaterial || '',
     pomFrontUrl: color.pomFrontUrl || '',
     pomSideUrl: color.pomSideUrl || '',
+    pomFrontPath: color.pomFrontPath || '',
+    pomSidePath: color.pomSidePath || '',
   }
 }
 
@@ -237,6 +193,7 @@ export default function CreateArtwork() {
   const [removedColors, setRemovedColors] = useState([])
   const [selectedTextureIds, setSelectedTextureIds] = useState([])
   const [pdfReferenceMode, setPdfReferenceMode] = useState('auto')
+  const [pdfMainImageMode, setPdfMainImageMode] = useState('cad')
   const [extracting, setExtracting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadingSource, setLoadingSource] = useState(false)
@@ -335,6 +292,7 @@ export default function CreateArtwork() {
     setRemovedColors([])
     setSelectedTextureIds([])
     setPdfReferenceMode('auto')
+    setPdfMainImageMode('cad')
     setSourceArtworkId(null)
     setPendingArtworkNo(null)
     setPendingVersion(null)
@@ -427,6 +385,7 @@ export default function CreateArtwork() {
         setRemovedColors([])
         setSelectedTextureIds(Array.isArray(data.textures) ? data.textures : [])
         setPdfReferenceMode('auto')
+        setPdfMainImageMode('cad')
         setPendingArtworkNo(resolvedNo)
         setPendingVersion(nextVersion)
         setStep(Array.isArray(data.colors) && data.colors.length ? 2 : 1)
@@ -447,6 +406,12 @@ export default function CreateArtwork() {
       cancelled = true
     }
   }, [editArtworkId])
+
+  useEffect(() => {
+    if (pdfMainImageMode === 'visualisation' && !visualAsset?.previewUrl) {
+      setPdfMainImageMode('cad')
+    }
+  }, [pdfMainImageMode, visualAsset?.previewUrl])
 
   useEffect(() => {
     if (!pomsById.size) {
@@ -474,6 +439,8 @@ export default function CreateArtwork() {
           pomMaterial: color.pomMaterial || getPomMaterial(pom),
           pomFrontUrl: color.pomFrontUrl || getPomFrontImage(pom),
           pomSideUrl: color.pomSideUrl || getPomSideImage(pom),
+          pomFrontPath: color.pomFrontPath || pom.compressedFrontImagePath || pom.frontThumbnailPath || '',
+          pomSidePath: color.pomSidePath || pom.compressedSideImagePath || pom.sideThumbnailPath || '',
         }
 
         if (
@@ -482,7 +449,9 @@ export default function CreateArtwork() {
           hydrated.pomLabel !== color.pomLabel ||
           hydrated.pomMaterial !== color.pomMaterial ||
           hydrated.pomFrontUrl !== color.pomFrontUrl ||
-          hydrated.pomSideUrl !== color.pomSideUrl
+          hydrated.pomSideUrl !== color.pomSideUrl ||
+          hydrated.pomFrontPath !== color.pomFrontPath ||
+          hydrated.pomSidePath !== color.pomSidePath
         ) {
           changed = true
           return hydrated
@@ -592,6 +561,8 @@ export default function CreateArtwork() {
     const pomMaterial = getPomMaterial(pom)
     const pomFrontUrl = getPomFrontImage(pom)
     const pomSideUrl = getPomSideImage(pom)
+    const pomFrontPath = pom.compressedFrontImagePath || pom.frontThumbnailPath || ''
+    const pomSidePath = pom.compressedSideImagePath || pom.sideThumbnailPath || ''
 
     setColors((prev) =>
       prev.map((color, index) =>
@@ -606,6 +577,8 @@ export default function CreateArtwork() {
               pomMaterial,
               pomFrontUrl,
               pomSideUrl,
+              pomFrontPath,
+              pomSidePath,
             }
           : color
       )
@@ -625,6 +598,8 @@ export default function CreateArtwork() {
               pomQuery: queryValue,
               pomFrontUrl: '',
               pomSideUrl: '',
+              pomFrontPath: '',
+              pomSidePath: '',
             }
           : color
       )
@@ -736,6 +711,8 @@ export default function CreateArtwork() {
           pomMaterial: color.pomMaterial?.trim() || null,
           pomFrontUrl: color.pomFrontUrl || null,
           pomSideUrl: color.pomSideUrl || null,
+          pomFrontPath: color.pomFrontPath || null,
+          pomSidePath: color.pomSidePath || null,
         })),
         textures: selectedTextureIds,
         createdAt: serverTimestamp(),
@@ -1010,6 +987,20 @@ export default function CreateArtwork() {
 
             <div className="space-y-2 rounded-xl border border-white/10 bg-slate-900/55 p-3">
               <label className="block space-y-1.5">
+                <span className="text-xs uppercase tracking-wide text-slate-300">Main Image In PDF</span>
+                <select
+                  value={pdfMainImageMode}
+                  onChange={(event) => setPdfMainImageMode(event.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 focus:border-teal-300 focus:outline-none"
+                >
+                  <option value="cad">CAD (Default)</option>
+                  <option value="visualisation" disabled={!visualAsset?.previewUrl}>
+                    Visualisation
+                  </option>
+                </select>
+              </label>
+
+              <label className="block space-y-1.5">
                 <span className="text-xs uppercase tracking-wide text-slate-300">Reference Image In PDF</span>
                 <select
                   value={pdfReferenceMode}
@@ -1033,6 +1024,7 @@ export default function CreateArtwork() {
                 textures={selectedTextureDocs}
                 poms={poms}
                 referenceMode={pdfReferenceMode}
+                mainImageMode={pdfMainImageMode}
                 label="Download PDF"
                 disabled={pomsLoading}
               />

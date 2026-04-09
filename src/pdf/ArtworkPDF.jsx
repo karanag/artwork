@@ -228,6 +228,8 @@ function buildMetaRows(data) {
 }
 
 export default function ArtworkPDF({ data }) {
+  const mainImage = asText(data?.mainImage || data?.cadImage)
+  const mainImageLabel = asText(data?.mainImageLabel, 'Final Artwork / CAD')
   const heroImage = asText(data?.heroImage)
   const referenceMode = data?.referenceMode || 'visualisation'
   const metaRows = buildMetaRows(data)
@@ -243,11 +245,11 @@ export default function ArtworkPDF({ data }) {
           {/* LEFT */}
           <View style={styles.leftColumn}>
             <View style={styles.cadFrame}>
-              {hasText(data?.cadImage) && (
-                <Image src={data.cadImage} style={styles.cadImage} />
+              {hasText(mainImage) && (
+                <Image src={mainImage} style={styles.cadImage} />
               )}
             </View>
-            <Text style={styles.cadLabel}>Final Artwork / CAD</Text>
+            <Text style={styles.cadLabel}>{mainImageLabel}</Text>
           </View>
 
           {/* RIGHT */}

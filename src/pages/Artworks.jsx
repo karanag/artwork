@@ -134,6 +134,7 @@ export default function Artworks() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pdfReferenceModes, setPdfReferenceModes] = useState({})
+  const [pdfMainImageModes, setPdfMainImageModes] = useState({})
   const { poms, loading: pomsLoading, error: pomsError } = usePoms()
   const { textures, error: texturesError } = useTextures()
 
@@ -243,6 +244,13 @@ export default function Artworks() {
     }))
   }
 
+  const updatePdfMainImageMode = (groupKey, value) => {
+    setPdfMainImageModes((prev) => ({
+      ...prev,
+      [groupKey]: value,
+    }))
+  }
+
   return (
     <PageShell
       title="Read Old Artwork"
@@ -296,6 +304,11 @@ export default function Artworks() {
             const versionLabel = resolveVersionLabel(latest)
             const previews = [latest?.cadUrl, latest?.visualisationUrl, latest?.inspirationUrl].filter(Boolean)
             const referenceMode = pdfReferenceModes[group.groupKey] || 'auto'
+            const requestedMainImageMode = pdfMainImageModes[group.groupKey] || 'cad'
+            const mainImageMode =
+              requestedMainImageMode === 'visualisation' && !latest?.visualisationUrl
+                ? 'cad'
+                : requestedMainImageMode
             const latestTextures = resolveTexturesForPdf(latest, texturesById)
 
             return (
@@ -309,6 +322,19 @@ export default function Artworks() {
                     <p className="text-xs text-slate-400">Latest saved: {formatCreatedAt(latest?.createdAt)}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <label className="space-y-1 text-xs">
+                      <span className="block uppercase tracking-wide text-slate-300">PDF Main Image</span>
+                      <select
+                        value={mainImageMode}
+                        onChange={(event) => updatePdfMainImageMode(group.groupKey, event.target.value)}
+                        className="rounded-lg border border-white/15 bg-slate-900/70 px-2.5 py-1.5 text-xs text-slate-100 focus:border-teal-300 focus:outline-none"
+                      >
+                        <option value="cad">CAD (Default)</option>
+                        <option value="visualisation" disabled={!latest?.visualisationUrl}>
+                          Visualisation
+                        </option>
+                      </select>
+                    </label>
                     <label className="space-y-1 text-xs">
                       <span className="block uppercase tracking-wide text-slate-300">PDF Reference</span>
                       <select
@@ -332,6 +358,7 @@ export default function Artworks() {
                       textures={latestTextures}
                       poms={poms}
                       referenceMode={referenceMode}
+                      mainImageMode={mainImageMode}
                       label="PDF (Latest)"
                       disabled={pomsLoading}
                     />
@@ -429,6 +456,7 @@ export default function Artworks() {
                             textures={resolveTexturesForPdf(versionDoc, texturesById)}
                             poms={poms}
                             referenceMode={referenceMode}
+                            mainImageMode={mainImageMode}
                             label="PDF"
                           />
                           <Button

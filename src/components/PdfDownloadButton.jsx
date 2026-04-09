@@ -10,6 +10,7 @@ export default function PdfDownloadButton({
   textures = [],
   poms = [],
   referenceMode = 'auto',
+  mainImageMode = 'cad',
   label = 'Download PDF',
   className = '',
   disabled = false,
@@ -39,10 +40,11 @@ export default function PdfDownloadButton({
         textures,
         poms,
         referenceMode,
+        mainImageMode,
       })
 
-      if (!mapped?.cadImage) {
-        throw new Error('CAD image could not be prepared for PDF.')
+      if (!mapped?.mainImage && !mapped?.cadImage) {
+        throw new Error('Selected main image could not be prepared for PDF.')
       }
 
       const missingPomMedia = (mapped?.colors || []).filter(
