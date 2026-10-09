@@ -89,7 +89,7 @@ function firstNonEmpty(values) {
 }
 
 function getTextureImage(texture) {
-  return texture?.thumbUrl || texture?.imageUrl || ''
+  return texture?.thumbnailUrl || texture?.thumbUrl || texture?.imageUrl || ''
 }
 
 function resolveArtworkReference(artwork = {}) {

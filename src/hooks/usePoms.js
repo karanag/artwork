@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, getDocsFromServer } from 'firebase/firestore'
 import { getDownloadURL, ref as storageRef } from 'firebase/storage'
 import { db, firebaseError, storage } from '../firebase/client'
 import {
@@ -16,7 +16,7 @@ const POMS_CACHE_SCHEMA = 2
 
 let inMemoryPomsCache = []
 let hasInMemoryPomsCache = false
-let inFlightPomsFetch = null
+let pomsPageFetch = null
 
 function hasText(value) {
   return typeof value === 'string' && value.trim().length > 0
@@ -191,7 +191,7 @@ async function resolvePomUrl(url, pomId, fieldName) {
 }
 
 async function fetchAndResolvePomsFromFirestore() {
-  const snap = await getDocs(collection(db, 'poms'))
+  const snap = await getDocsFromServer(collection(db, 'poms'))
   const rawDocs = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
 
   const resolvedDocs = await Promise.all(
@@ -222,17 +222,12 @@ async function fetchAndResolvePomsFromFirestore() {
   return next
 }
 
-async function loadPomsWithSharedRequest() {
-  if (inFlightPomsFetch) {
-    return inFlightPomsFetch
+function loadPomsOncePerPage() {
+  if (!pomsPageFetch) {
+    pomsPageFetch = fetchAndResolvePomsFromFirestore()
   }
 
-  inFlightPomsFetch = fetchAndResolvePomsFromFirestore()
-  try {
-    return await inFlightPomsFetch
-  } finally {
-    inFlightPomsFetch = null
-  }
+  return pomsPageFetch
 }
 
 export default function usePoms() {
@@ -251,7 +246,6 @@ export default function usePoms() {
           setError('')
           setLoading(false)
         }
-        return
       }
 
       if (!db) {
@@ -270,7 +264,7 @@ export default function usePoms() {
       }
 
       try {
-        const next = await loadPomsWithSharedRequest()
+        const next = await loadPomsOncePerPage()
 
         if (!cancelled) {
           setPoms(next)
